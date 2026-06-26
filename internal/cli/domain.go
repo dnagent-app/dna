@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/datatug/cliformat"
 	"github.com/dal-go/dalgo/dal"
 	"github.com/dal-go/dalgo2namecheap"
 	"github.com/spf13/cobra"
@@ -34,6 +35,7 @@ func domainListCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&page, "page", 1, "page number (1-based)")
 	cmd.Flags().IntVar(&limit, "limit", 20, "domains per page (max 100)")
+	cliformat.AddFlag(cmd, "name")
 	return cmd
 }
 
@@ -53,7 +55,7 @@ func runDomainList(cmd *cobra.Command, page, limit int) error {
 	}
 	defer reader.Close()
 
-	count := 0
+	var items []namecheap.DomainInfo
 	for {
 		rec, err := reader.Next()
 		if err == io.EOF {
@@ -62,30 +64,15 @@ func runDomainList(cmd *cobra.Command, page, limit int) error {
 		if err != nil {
 			return fmt.Errorf("reading domain: %w", err)
 		}
-
-		info, ok := rec.Data().(*namecheap.DomainInfo)
-		if !ok {
-			continue
+		if info, ok := rec.Data().(*namecheap.DomainInfo); ok {
+			items = append(items, *info)
 		}
-
-		expires := info.Expires.Format("2006-01-02")
-		flags := ""
-		if info.AutoRenew {
-			flags += " AR"
-		}
-		if info.IsExpired {
-			flags += " EXPIRED"
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%-40s  %s%s\n", info.DomainName, expires, flags)
-		count++
 	}
 
-	if count == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "no domains found")
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n%d domain(s)  [page %d, limit %d]\n", count, page, limit)
-	}
-	return nil
+	format := cliformat.GetFormat(cmd)
+	return cliformat.WriteList(cmd.OutOrStdout(), format, items, func(d namecheap.DomainInfo) string {
+		return d.DomainName
+	})
 }
 
 // newClient builds a namecheap.Client from env / ~/.namecheap-api credentials.
